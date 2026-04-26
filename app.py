@@ -14,6 +14,11 @@ from auditor import (
     confidence_gap_label,
     trust_recommendation,
     build_highlighted_answer,
+    classify_failure_type,
+    detect_confidence_calibration,
+    score_breakdown,
+    audit_stability_indicator,
+    explain_risk,
     DEFAULT_MODEL,
 )
 
@@ -100,6 +105,49 @@ st.markdown("""
     background:#161b22; border:1px solid #30363d; border-radius:12px;
     padding:1.2rem; margin-bottom:0.5rem;
 }
+
+.failure-badge {
+    display:inline-block; padding:0.3rem 1rem;
+    border-radius:999px; font-weight:700; font-size:0.85rem; margin-top:0.4rem;
+}
+.failure-contradiction { background:#3a0a0a; color:#f85149; border:1px solid #f85149; }
+.failure-unsupported   { background:#2a2200; color:#d29922; border:1px solid #d29922; }
+.failure-overconfidence{ background:#2a1a00; color:#e3b341; border:1px solid #e3b341; }
+.failure-mixed         { background:#1a1a3a; color:#79c0ff; border:1px solid #79c0ff; }
+.failure-none          { background:#0d2818; color:#3fb950; border:1px solid #3fb950; }
+
+.calibration-box {
+    background:#161b22; border:1px solid #30363d; border-radius:10px;
+    padding:1rem 1.3rem; margin-bottom:0.75rem;
+    display:flex; gap:2rem; flex-wrap:wrap; align-items:center;
+}
+.cal-item { text-align:center; }
+.cal-label { font-size:0.7rem; color:#8b949e; text-transform:uppercase; letter-spacing:0.08em; }
+.cal-value { font-size:1.1rem; font-weight:700; margin-top:0.2rem; }
+
+.breakdown-box {
+    background:#161b22; border:1px solid #30363d; border-radius:10px;
+    padding:1rem 1.3rem; margin-bottom:0.75rem; font-size:0.9rem;
+}
+.breakdown-row { display:flex; justify-content:space-between;
+    padding:0.3rem 0; border-bottom:1px solid #21262d; color:#c9d1d9; }
+.breakdown-row:last-child { border-bottom:none; font-weight:700; color:#e6edf3; }
+
+.risk-explain-box {
+    background:#1e1015; border:1px solid #f85149; border-radius:10px;
+    padding:1rem 1.3rem; margin-bottom:0.75rem; line-height:1.8;
+}
+.action-box {
+    background:#0d1a10; border:1px solid #3fb950; border-radius:10px;
+    padding:1rem 1.3rem; margin-bottom:0.75rem; line-height:1.8;
+}
+.stability-badge {
+    display:inline-block; padding:0.25rem 0.8rem;
+    border-radius:999px; font-weight:700; font-size:0.85rem;
+}
+.stab-High   { background:#0d2818; color:#3fb950; border:1px solid #3fb950; }
+.stab-Medium { background:#3a2e1a; color:#d29922; border:1px solid #d29922; }
+.stab-Low    { background:#3a1a1a; color:#f85149; border:1px solid #f85149; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -177,7 +225,8 @@ with tab_main:
 
     with right:
         st.markdown("#### 💡 Load Example")
-        if st.button("Load Eiffel Tower Example", use_container_width=True):
+
+        def _load_eiffel_example():
             st.session_state["ctx_main"] = (
                 "The Eiffel Tower was constructed between 1887 and 1889 as the entrance arch "
                 "for the 1889 World's Fair. It was designed by engineer Gustave Eiffel. "
@@ -185,7 +234,9 @@ with tab_main:
                 "It was initially criticised by some French artists and intellectuals."
             )
             st.session_state["q_main"] = "When was the Eiffel Tower built and who designed it?"
-            st.rerun()
+
+        st.button("Load Eiffel Tower Example", use_container_width=True,
+                  on_click=_load_eiffel_example)
 
         st.markdown("---")
         st.markdown("#### 🔧 Audit Options")
@@ -238,6 +289,12 @@ with tab_main:
         notfnd = sum(1 for c in claims if c["classification"] == "Not Found")
         contra = sum(1 for c in claims if c["classification"] == "Contradicts")
 
+        # ── New analytical data ───────────────────────────────────────────────
+        failure_type  = classify_failure_type(claims, overconf)
+        calibration   = detect_confidence_calibration(answer, score)
+        sbd           = score_breakdown(claims, overconf)
+        risk_explain  = explain_risk(claims, overconf, score)
+
         st.markdown("---")
 
         # ── Generated answer ──────────────────────────────────────────────────
@@ -245,8 +302,19 @@ with tab_main:
         st.markdown(f'<div class="insight-box" style="color:#e6edf3;">{answer}</div>',
                     unsafe_allow_html=True)
 
-        # ── Summary insight block ─────────────────────────────────────────────
+        # ── Summary insight block + Failure Type ─────────────────────────────
         st.markdown('<div class="section-hdr">📊 Summary</div>', unsafe_allow_html=True)
+
+        # Map failure type to CSS class
+        _ft_css = {
+            "Contradiction with Context": "failure-contradiction",
+            "Unsupported Claim":          "failure-unsupported",
+            "Overconfidence Bias":        "failure-overconfidence",
+            "Mixed Issues":               "failure-mixed",
+            "No Issues Detected":         "failure-none",
+        }
+        ft_class = _ft_css.get(failure_type, "failure-none")
+
         st.markdown(f"""
 <div class="insight-box">
   This answer contains:<br>
@@ -254,7 +322,9 @@ with tab_main:
   &nbsp;&nbsp;• <span style="color:#d29922;font-weight:700">{notfnd} unsupported claim(s)</span><br>
   &nbsp;&nbsp;• <span style="color:#3fb950;font-weight:700">{sup} supported claim(s)</span><br>
   &nbsp;&nbsp;• Risk Level: <span style="font-weight:700">
-        <span class="risk-badge risk-{risk}">{risk.upper()}</span></span>
+        <span class="risk-badge risk-{risk}">{risk.upper()}</span></span><br>
+  &nbsp;&nbsp;• Primary Failure Type:&nbsp;
+        <span class="failure-badge {ft_class}">{failure_type}</span>
 </div>""", unsafe_allow_html=True)
 
         # ── Score cards ───────────────────────────────────────────────────────
@@ -293,6 +363,79 @@ with tab_main:
   <div style="margin-top:0.5rem;font-size:1rem;font-weight:700;color:{rec_color}">{rec_label}</div>
 </div>""", unsafe_allow_html=True)
 
+        # ── Score Breakdown ───────────────────────────────────────────────────
+        st.markdown('<div class="section-hdr">🧮 Score Breakdown</div>', unsafe_allow_html=True)
+        st.markdown(f"""
+<div class="breakdown-box">
+  <div class="breakdown-row">
+    <span>Starting score</span><span style="color:#3fb950">100</span>
+  </div>
+  <div class="breakdown-row">
+    <span>Contradictions&nbsp;
+      <span style="color:#8b949e;font-size:0.8rem">({sbd['contradiction_count']} × −25)</span></span>
+    <span style="color:#f85149">{sbd['contradictions_deduction']}</span>
+  </div>
+  <div class="breakdown-row">
+    <span>Unsupported claims&nbsp;
+      <span style="color:#8b949e;font-size:0.8rem">({sbd['unsupported_count']} × −10)</span></span>
+    <span style="color:#d29922">{sbd['unsupported_deduction']}</span>
+  </div>
+  <div class="breakdown-row">
+    <span>Overconfidence signals&nbsp;
+      <span style="color:#8b949e;font-size:0.8rem">({sbd['overconfidence_count']} × −5)</span></span>
+    <span style="color:#e3b341">{sbd['overconfidence_deduction']}</span>
+  </div>
+  <div class="breakdown-row">
+    <span>Final Score</span>
+    <span style="color:{score_color}">{sbd['final_score']}</span>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+        # ── Confidence Calibration ────────────────────────────────────────────
+        st.markdown('<div class="section-hdr">🎯 Confidence Calibration</div>',
+                    unsafe_allow_html=True)
+        cal = calibration
+        conf_color = "#f85149" if cal["model_confidence"] == "High" else "#3fb950"
+        rel_color  = (
+            "#3fb950" if cal["actual_reliability"] == "High"
+            else "#d29922" if cal["actual_reliability"] == "Medium"
+            else "#f85149"
+        )
+        calib_verdict_color = "#f85149" if cal["is_overconfident"] else "#3fb950"
+        st.markdown(f"""
+<div class="calibration-box">
+  <div class="cal-item">
+    <div class="cal-label">Model Confidence</div>
+    <div class="cal-value" style="color:{conf_color}">{cal['model_confidence']}</div>
+  </div>
+  <div class="cal-item">
+    <div class="cal-label">Actual Reliability</div>
+    <div class="cal-value" style="color:{rel_color}">{cal['actual_reliability']}</div>
+  </div>
+  <div class="cal-item" style="flex:1;text-align:left;border-left:1px solid #30363d;padding-left:1.5rem">
+    <div style="font-size:1rem;font-weight:700;color:{calib_verdict_color}">{cal['label']}</div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+        # ── Why This Is Risky + Suggested Action ─────────────────────────────
+        re_data = risk_explain
+        if re_data["risk_bullets"] and re_data["risk_bullets"] != ["No significant risks identified"]:
+            st.markdown('<div class="section-hdr">⚠️ Why This Is Risky</div>',
+                        unsafe_allow_html=True)
+            bullets_html = "".join(
+                f'<span style="color:#ffa198">• {b}</span><br>' for b in re_data["risk_bullets"]
+            )
+            st.markdown(f'<div class="risk-explain-box">{bullets_html}</div>',
+                        unsafe_allow_html=True)
+
+        st.markdown('<div class="section-hdr">💡 Suggested Action</div>',
+                    unsafe_allow_html=True)
+        action_html = "".join(
+            f'<span style="color:#7ee787">• {a}</span><br>' for a in re_data["action_bullets"]
+        )
+        st.markdown(f'<div class="action-box">{action_html}</div>',
+                    unsafe_allow_html=True)
+
         # ── Multi-pass ────────────────────────────────────────────────────────
         if run_multipass:
             with st.spinner("🔁 Running strict audit pass..."):
@@ -302,10 +445,12 @@ with tab_main:
                     strict_score = strict_result.get("trust_score", 0)
                     gap = confidence_gap_label(score, strict_score)
                     gap_color = "#f85149" if gap == "High" else "#d29922" if gap == "Medium" else "#3fb950"
+                    stability = audit_stability_indicator(score, strict_score)
+                    stab_css  = f"stab-{stability['stability']}"
 
                     st.markdown('<div class="section-hdr">🔁 Multi-Pass Audit</div>',
                                 unsafe_allow_html=True)
-                    mp1, mp2, mp3 = st.columns(3)
+                    mp1, mp2, mp3, mp4 = st.columns(4)
                     with mp1:
                         st.markdown(f"""
 <div class="score-box">
@@ -324,6 +469,14 @@ with tab_main:
 <div class="score-box">
   <div style="color:#8b949e;font-size:0.75rem">CONFIDENCE GAP</div>
   <div style="margin-top:0.5rem;font-size:1.4rem;font-weight:800;color:{gap_color}">{gap}</div>
+</div>""", unsafe_allow_html=True)
+                    with mp4:
+                        st.markdown(f"""
+<div class="score-box">
+  <div style="color:#8b949e;font-size:0.75rem">AUDIT STABILITY</div>
+  <div style="margin-top:0.6rem">
+    <span class="stability-badge {stab_css}">{stability['label']}</span>
+  </div>
 </div>""", unsafe_allow_html=True)
                 except Exception as e:
                     st.warning(f"Multi-pass audit failed: {e}")
