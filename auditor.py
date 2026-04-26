@@ -1,5 +1,6 @@
 """
-auditor.py — AI Trust Layer: Core LLM logic using google-genai SDK v1.73+
+auditor.py — AI Trust Layer: Core LLM logic with multi-provider support
+Supports: Google Gemini, OpenAI, Anthropic Claude, Ollama
 """
 # NOTE: New exports: classify_failure_type, detect_confidence_calibration,
 #       score_breakdown, audit_stability_indicator, explain_risk
@@ -7,31 +8,30 @@ auditor.py — AI Trust Layer: Core LLM logic using google-genai SDK v1.73+
 import json
 import re
 import html
-from google import genai
-from google.genai import types
+from model_provider import get_provider, GenerateConfig, SUPPORTED_PROVIDERS
 
-# ── Default model ─────────────────────────────────────────────────────────────
+# ── Default model & provider ──────────────────────────────────────────────────
+DEFAULT_PROVIDER = "gemini"
 DEFAULT_MODEL = "gemini-2.5-flash"
 
 # ── Shared generation configs ─────────────────────────────────────────────────
-LOW_TEMP  = types.GenerateContentConfig(temperature=0.1, max_output_tokens=4096)
-HIGH_TEMP = types.GenerateContentConfig(temperature=0.9, max_output_tokens=1024)
+LOW_TEMP = GenerateConfig(temperature=0.1, max_output_tokens=4096)
+HIGH_TEMP = GenerateConfig(temperature=0.9, max_output_tokens=1024)
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _make_client(api_key: str) -> genai.Client:
-    return genai.Client(api_key=api_key)
+def _get_provider_instance(provider: str, api_key: str, base_url: str = None):
+    """Get a provider instance, handling both old-style calls and new style."""
+    return get_provider(provider, api_key=api_key, base_url=base_url)
 
 
-def _call(client: genai.Client, model: str, prompt: str,
-          cfg: types.GenerateContentConfig = None) -> str:
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=cfg or LOW_TEMP,
-    )
-    return response.text.strip()
+def _call(provider_name: str, api_key: str, model: str, prompt: str,
+          cfg: GenerateConfig = None, base_url: str = None) -> str:
+    """Call an LLM using the specified provider."""
+    provider = _get_provider_instance(provider_name, api_key, base_url)
+    config = cfg or LOW_TEMP
+    return provider.generate_content(model, prompt, config)
 
 
 def _parse_json(raw: str) -> dict:
@@ -166,16 +166,30 @@ Respond ONLY with valid JSON. No markdown:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def generate_answer(api_key: str, context: str, question: str,
-                    model: str = DEFAULT_MODEL) -> str:
-    client = _make_client(api_key)
+def generate_answer(
+    api_key: str,
+    context: str,
+    question: str,
+    model: str = DEFAULT_MODEL,
+    provider: str = DEFAULT_PROVIDER,
+    base_url: str = None,
+) -> str:
+    """Generate an answer using the specified provider and model."""
     prompt = GENERATE_PROMPT.format(context=context.strip(), question=question.strip())
-    return _call(client, model, prompt, LOW_TEMP)
+    return _call(provider, api_key, model, prompt, LOW_TEMP, base_url)
 
 
-def run_audit(api_key: str, context: str, question: str, answer: str,
-              model_name: str = DEFAULT_MODEL, strict: bool = False) -> dict:
-    client = _make_client(api_key)
+def run_audit(
+    api_key: str,
+    context: str,
+    question: str,
+    answer: str,
+    model_name: str = DEFAULT_MODEL,
+    provider: str = DEFAULT_PROVIDER,
+    strict: bool = False,
+    base_url: str = None,
+) -> dict:
+    """Run a hallucination audit using the specified provider and model."""
     mode = "STRICT" if strict else "NORMAL"
     mode_instruction = (
         "Assume the answer is likely wrong. Be highly critical. "
@@ -190,7 +204,7 @@ def run_audit(api_key: str, context: str, question: str, answer: str,
         mode=mode,
         mode_instruction=mode_instruction,
     )
-    raw = _call(client, model_name, prompt, LOW_TEMP)
+    raw = _call(provider, api_key, model_name, prompt, LOW_TEMP, base_url)
     result = _safe_parse_json(raw)
     if result is None:
         raise ValueError(f"Could not parse audit JSON.\nRaw:\n{raw[:500]}")
@@ -205,29 +219,47 @@ def run_audit(api_key: str, context: str, question: str, answer: str,
     return result
 
 
-def fix_answer(api_key: str, context: str, question: str, answer: str,
-               model: str = DEFAULT_MODEL) -> str:
-    client = _make_client(api_key)
+def fix_answer(
+    api_key: str,
+    context: str,
+    question: str,
+    answer: str,
+    model: str = DEFAULT_MODEL,
+    provider: str = DEFAULT_PROVIDER,
+    base_url: str = None,
+) -> str:
+    """Fix an answer to be grounded in context using the specified provider."""
     prompt = FIX_PROMPT.format(
         context=context.strip(),
         question=question.strip(),
         answer=answer.strip(),
     )
-    return _call(client, model, prompt, LOW_TEMP)
+    return _call(provider, api_key, model, prompt, LOW_TEMP, base_url)
 
 
-def generate_misleading_answer(api_key: str, context: str, question: str,
-                               model: str = DEFAULT_MODEL) -> str:
-    client = _make_client(api_key)
+def generate_misleading_answer(
+    api_key: str,
+    context: str,
+    question: str,
+    model: str = DEFAULT_MODEL,
+    provider: str = DEFAULT_PROVIDER,
+    base_url: str = None,
+) -> str:
+    """Generate a misleading answer for adversarial testing."""
     prompt = MISLEADING_PROMPT.format(context=context.strip(), question=question.strip())
-    return _call(client, model, prompt, HIGH_TEMP)
+    return _call(provider, api_key, model, prompt, HIGH_TEMP, base_url)
 
 
-def check_consistency(api_key: str, answer: str,
-                      model: str = DEFAULT_MODEL) -> dict:
-    client = _make_client(api_key)
+def check_consistency(
+    api_key: str,
+    answer: str,
+    model: str = DEFAULT_MODEL,
+    provider: str = DEFAULT_PROVIDER,
+    base_url: str = None,
+) -> dict:
+    """Check consistency of an answer using the specified provider."""
     prompt = CONSISTENCY_PROMPT.format(answer=answer.strip())
-    raw = _call(client, model, prompt, LOW_TEMP)
+    raw = _call(provider, api_key, model, prompt, LOW_TEMP, base_url)
     result = _safe_parse_json(raw)
     if result is None:
         return {"is_consistent": None, "issues": [], "summary": "Could not parse consistency check."}
