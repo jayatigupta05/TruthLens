@@ -45,45 +45,62 @@ No external knowledge. No assumptions. Just your context vs. the model's output.
 ---
 
 ## 🏗️ Architecture
+```mermaid
+flowchart TD
 
+    %% ---------- INPUTS ----------
+    subgraph IN["Inputs"]
+        CTX["Context (Source Document)"]
+        Q["Question"]
+        ANS["Answer (Generated or Manual)"]
+    end
+
+    %% ---------- GENERATION ----------
+    CTX --> GEN["Answer Generation (Gemini API)"]
+    Q --> GEN
+    GEN --> ANS
+
+    %% ---------- AUDIT ----------
+    CTX --> AUDIT
+    Q --> AUDIT
+    ANS --> AUDIT
+
+    subgraph AUDIT["Audit Engine"]
+        NRM["Normal Pass (Balanced)"]
+        STR["Strict Pass (Skeptical)"]
+    end
+
+    AUDIT --> CLAIMS["Claim Classification (Supported / Not Found / Contradicts)"]
+    AUDIT --> OC["Overconfidence Detection (Linguistic Signals)"]
+    AUDIT --> CONS["Self-Consistency Check"]
+
+    NRM --> STAB
+    STR --> STAB
+
+    %% ---------- SCORING ----------
+    CLAIMS --> SCORE
+    OC --> SCORE
+
+    subgraph SCORE["Scoring & Analytics"]
+        TS["Trust Score (0-100)"]
+        FT["Failure Type"]
+        CAL["Confidence Calibration"]
+        SBD["Score Breakdown"]
+        STAB["Audit Stability"]
+        RISK["Risk Explanation & Suggestions"]
+    end
+
+    %% ---------- OUTPUT ----------
+    SCORE --> HL["Inline Claim Highlighting"]
+    SCORE --> UI
+    HL --> UI
+    CONS --> UI
+
+    UI["Streamlit UI (Audit / Compare / Adversarial)"]
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        TruthLens Pipeline                       │
-│                                                                 │
-│  ┌──────────┐    ┌────────────┐    ┌──────────────────────────┐ │
-│  │ Context  │    │  Question  │    │    Answer (AI or Manual)  │ │
-│  └────┬─────┘    └─────┬──────┘    └────────────┬─────────────┘ │
-│       │                │                        │               │
-│       └────────────────┴────────────────────────┘               │
-│                                │                                │
-│                    ┌───────────▼───────────┐                    │
-│                    │  Gemini Audit Engine   │                    │
-│                    │  (Normal + Strict)     │                    │
-│                    └───────────┬───────────┘                    │
-│                                │                                │
-│         ┌──────────────────────┼──────────────────────┐         │
-│         │                      │                      │         │
-│  ┌──────▼──────┐    ┌──────────▼──────┐    ┌──────────▼──────┐ │
-│  │   Claims    │    │  Overconfidence  │    │ Consistency      │ │
-│  │  Analysis   │    │   Detection      │    │   Check          │ │
-│  └──────┬──────┘    └──────────┬──────┘    └──────────┬──────┘ │
-│         │                      │                      │         │
-│         └──────────────────────┼──────────────────────┘         │
-│                                │                                │
-│                    ┌───────────▼───────────┐                    │
-│                    │    Trust Score +        │                   │
-│                    │  Failure Classification │                   │
-│                    │  Calibration + Guidance │                   │
-│                    └───────────┬───────────┘                    │
-│                                │                                │
-│                    ┌───────────▼───────────┐                    │
-│                    │   Streamlit UI Render  │                    │
-│                    └───────────────────────┘                    │
-└─────────────────────────────────────────────────────────────────┘
-```
+
 
 ---
-
 ## 🚀 Quick Start
 
 ### 1. Clone & set up environment
