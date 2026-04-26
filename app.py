@@ -1,5 +1,5 @@
 """
-app.py — AI Trust Layer: Streamlit UI
+app.py — AI Trust Layer: Streamlit UI (Multi-Provider Edition)
 Run with: streamlit run app.py
 """
 
@@ -20,7 +20,9 @@ from auditor import (
     audit_stability_indicator,
     explain_risk,
     DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
 )
+from model_provider import get_available_models, SUPPORTED_PROVIDERS
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -155,17 +157,105 @@ st.markdown("""
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Configuration")
-    api_key = st.text_input(
-        "Google Gemini API Key",
-        type="password",
-        placeholder="AIza...",
-        help="Get your key at https://aistudio.google.com/",
+    
+    # Provider selection
+    provider_choice = st.selectbox(
+        "🤖 Model Provider",
+        SUPPORTED_PROVIDERS,
+        index=SUPPORTED_PROVIDERS.index(DEFAULT_PROVIDER),
+        help="Choose which AI model provider to use",
     )
-    model_choice = st.selectbox(
-        "Primary Model",
-        ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
-        index=0,
+    
+    # Store provider in session state for consistent use
+    st.session_state.provider = provider_choice
+    
+    # API Key input based on provider
+    if provider_choice == "ollama":
+        ollama_url = st.text_input(
+            "Ollama Base URL",
+            value="http://localhost:11434",
+            placeholder="http://localhost:11434",
+            help="URL where Ollama is running",
+        )
+        st.session_state.ollama_url = ollama_url
+        api_key = "ollama"  # Dummy key for Ollama
+    else:
+        provider_names = {
+            "gemini": "Google Gemini",
+            "openai": "OpenAI",
+            "anthropic": "Anthropic Claude",
+        }
+        api_key = st.text_input(
+            f"{provider_names.get(provider_choice, provider_choice)} API Key",
+            type="password",
+            placeholder={
+                "gemini": "AIza...",
+                "openai": "sk-...",
+                "anthropic": "sk-ant-...",
+            }.get(provider_choice, "Enter API key..."),
+            help={
+                "gemini": "Get your key at https://aistudio.google.com/",
+                "openai": "Get your key at https://platform.openai.com/api-keys",
+                "anthropic": "Get your key at https://console.anthropic.com/",
+            }.get(provider_choice, ""),
+        )
+        st.session_state.ollama_url = None
+    
+    # Model selection based on provider
+    try:
+        available_models = get_available_models(provider_choice)
+        model_choice = st.selectbox(
+            "Model",
+            available_models,
+            index=0,
+        )
+    except Exception as e:
+        st.error(f"Could not load models: {e}")
+        model_choice = DEFAULT_MODEL
+    
+    # Store choices in session state
+    st.session_state.model = model_choice
+    st.session_state.api_key = api_key
+    
+    st.markdown("---")
+    
+    # Optional: Evaluation API Key (for using different provider for evaluation)
+    st.markdown("### 🔍 Evaluation Settings")
+    use_separate_eval = st.checkbox(
+        "Use different provider for evaluation",
+        value=False,
+        help="Use a different API key/model for the audit step"
     )
+    
+    if use_separate_eval:
+        eval_provider = st.selectbox(
+            "Evaluation Provider",
+            SUPPORTED_PROVIDERS,
+            index=SUPPORTED_PROVIDERS.index(DEFAULT_PROVIDER),
+            key="eval_provider_select",
+        )
+        if eval_provider == "ollama":
+            eval_url = st.text_input(
+                "Evaluation Ollama URL",
+                value="http://localhost:11434",
+                key="eval_ollama_url",
+            )
+            eval_api_key = "ollama"
+        else:
+            eval_api_key = st.text_input(
+                f"{eval_provider.capitalize()} API Key for Evaluation",
+                type="password",
+                key="eval_api_key_input",
+            )
+            eval_url = None
+        st.session_state.eval_provider = eval_provider
+        st.session_state.eval_api_key = eval_api_key
+        st.session_state.eval_url = eval_url
+    else:
+        st.session_state.eval_provider = None
+        st.session_state.eval_api_key = None
+        st.session_state.eval_url = None
+    
     st.markdown("---")
     st.markdown("**Score deductions**")
     st.markdown("− 25 per contradiction  \n− 10 per unsupported claim  \n− 5 per overconfidence signal")
@@ -249,8 +339,14 @@ with tab_main:
         ctx = context_input.strip()
         q   = question_input.strip()
 
+        # Get values from session state
+        api_key = st.session_state.get("api_key")
+        model_choice = st.session_state.get("model", DEFAULT_MODEL)
+        provider_choice = st.session_state.get("provider", DEFAULT_PROVIDER)
+        ollama_url = st.session_state.get("ollama_url")
+
         if not api_key:
-            st.error("🔑 Please enter your Gemini API key in the sidebar.")
+            st.error(f"🔑 Please enter your {provider_choice.capitalize()} API key in the sidebar.")
             st.stop()
         if not ctx or not q:
             st.warning("⚠️ Context and Question are required.")
@@ -263,15 +359,31 @@ with tab_main:
         else:
             with st.spinner("✍️ Generating grounded answer..."):
                 try:
-                    answer = generate_answer(api_key, ctx, q, model=model_choice)
+                    answer = generate_answer(
+                        api_key, ctx, q,
+                        model=model_choice,
+                        provider=provider_choice,
+                        base_url=ollama_url,
+                    )
                 except Exception as e:
                     st.error(f"❌ Answer generation failed: {e}")
                     st.stop()
 
+        # Determine which provider to use for evaluation
+        eval_provider = st.session_state.get("eval_provider", provider_choice)
+        eval_api_key = st.session_state.get("eval_api_key", api_key)
+        eval_url = st.session_state.get("eval_url", ollama_url)
+
         # Step 2: Normal audit
         with st.spinner("🔬 Running hallucination audit..."):
             try:
-                result = run_audit(api_key, ctx, q, answer, model_name=model_choice, strict=False)
+                result = run_audit(
+                    eval_api_key, ctx, q, answer,
+                    model_name=model_choice,
+                    provider=eval_provider or provider_choice,
+                    strict=False,
+                    base_url=eval_url,
+                )
             except Exception as e:
                 st.error(f"❌ Audit failed: {e}")
                 st.stop()
@@ -440,8 +552,13 @@ with tab_main:
         if run_multipass:
             with st.spinner("🔁 Running strict audit pass..."):
                 try:
-                    strict_result = run_audit(api_key, ctx, q, answer,
-                                              model_name=model_choice, strict=True)
+                    strict_result = run_audit(
+                        eval_api_key, ctx, q, answer,
+                        model_name=model_choice,
+                        provider=eval_provider or provider_choice,
+                        strict=True,
+                        base_url=eval_url,
+                    )
                     strict_score = strict_result.get("trust_score", 0)
                     gap = confidence_gap_label(score, strict_score)
                     gap_color = "#f85149" if gap == "High" else "#d29922" if gap == "Medium" else "#3fb950"
@@ -485,7 +602,12 @@ with tab_main:
         if run_consistency:
             with st.spinner("🔄 Checking internal consistency..."):
                 try:
-                    cons = check_consistency(api_key, answer, model=model_choice)
+                    cons = check_consistency(
+                        api_key, answer,
+                        model=model_choice,
+                        provider=provider_choice,
+                        base_url=ollama_url,
+                    )
                     st.markdown('<div class="section-hdr">🔄 Self-Consistency Check</div>',
                                 unsafe_allow_html=True)
                     is_c = cons.get("is_consistent")
@@ -557,7 +679,12 @@ with tab_main:
         if st.button("✨ Generate Grounded Fix", use_container_width=True):
             with st.spinner("Rewriting answer strictly from context..."):
                 try:
-                    fixed = fix_answer(api_key, ctx, q, answer, model=model_choice)
+                    fixed = fix_answer(
+                        api_key, ctx, q, answer,
+                        model=model_choice,
+                        provider=provider_choice,
+                        base_url=ollama_url,
+                    )
                     st.markdown(f'<div class="fix-box">{fixed}</div>', unsafe_allow_html=True)
                 except Exception as e:
                     st.error(f"❌ Fix failed: {e}")
@@ -576,19 +703,39 @@ with tab_compare:
                            placeholder="Question...")
 
     col_a, col_b = st.columns(2)
+    
+    # Get API key and provider for comparison
+    cmp_api_key = st.session_state.get("api_key")
+    cmp_provider = st.session_state.get("provider", DEFAULT_PROVIDER)
+    cmp_url = st.session_state.get("ollama_url")
+    
     with col_a:
-        model_a = st.selectbox("Model A", ["gemini-2.5-flash", "gemini-2.5-pro",
-                                           "gemini-2.0-flash", "gemini-2.0-flash-lite"],
-                               index=0, key="model_a")
+        try:
+            available_models_a = get_available_models(cmp_provider)
+            model_a = st.selectbox(
+                f"Model A ({cmp_provider})",
+                available_models_a,
+                index=0,
+                key="model_a"
+            )
+        except:
+            model_a = DEFAULT_MODEL
     with col_b:
-        model_b = st.selectbox("Model B", ["gemini-2.5-pro", "gemini-2.5-flash",
-                                           "gemini-2.0-flash", "gemini-2.0-flash-lite"],
-                               index=0, key="model_b")
+        try:
+            available_models_b = get_available_models(cmp_provider)
+            model_b = st.selectbox(
+                f"Model B ({cmp_provider})",
+                available_models_b,
+                index=min(1, len(available_models_b)-1),
+                key="model_b"
+            )
+        except:
+            model_b = DEFAULT_MODEL
 
     cmp_btn = st.button("🔄 Compare Models", type="primary", use_container_width=True)
 
     if cmp_btn:
-        if not api_key:
+        if not cmp_api_key:
             st.error("🔑 API key required in sidebar.")
             st.stop()
         if not cmp_ctx.strip() or not cmp_q.strip():
@@ -599,8 +746,18 @@ with tab_compare:
         for label, model in [("A", model_a), ("B", model_b)]:
             with st.spinner(f"Running Model {label} ({model})..."):
                 try:
-                    ans = generate_answer(api_key, cmp_ctx, cmp_q, model=model)
-                    audit = run_audit(api_key, cmp_ctx, cmp_q, ans, model_name=model)
+                    ans = generate_answer(
+                        cmp_api_key, cmp_ctx, cmp_q,
+                        model=model,
+                        provider=cmp_provider,
+                        base_url=cmp_url,
+                    )
+                    audit = run_audit(
+                        cmp_api_key, cmp_ctx, cmp_q, ans,
+                        model_name=model,
+                        provider=cmp_provider,
+                        base_url=cmp_url,
+                    )
                     results[label] = {"model": model, "answer": ans, "audit": audit}
                 except Exception as e:
                     st.error(f"Model {label} failed: {e}")
@@ -663,7 +820,18 @@ with tab_adversarial:
                         use_container_width=True)
 
     if adv_btn:
-        if not api_key:
+        # Get values from session state
+        adv_api_key = st.session_state.get("api_key")
+        adv_model = st.session_state.get("model", DEFAULT_MODEL)
+        adv_provider = st.session_state.get("provider", DEFAULT_PROVIDER)
+        adv_url = st.session_state.get("ollama_url")
+        
+        # Evaluation provider
+        eval_provider_adv = st.session_state.get("eval_provider", adv_provider)
+        eval_api_key_adv = st.session_state.get("eval_api_key", adv_api_key)
+        eval_url_adv = st.session_state.get("eval_url", adv_url)
+        
+        if not adv_api_key:
             st.error("🔑 API key required in sidebar.")
             st.stop()
         if not adv_ctx.strip() or not adv_q.strip():
@@ -672,7 +840,12 @@ with tab_adversarial:
 
         with st.spinner("🎭 Generating misleading answer..."):
             try:
-                misleading = generate_misleading_answer(api_key, adv_ctx, adv_q, model=model_choice)
+                misleading = generate_misleading_answer(
+                    adv_api_key, adv_ctx, adv_q,
+                    model=adv_model,
+                    provider=adv_provider,
+                    base_url=adv_url,
+                )
             except Exception as e:
                 st.error(f"❌ Generation failed: {e}")
                 st.stop()
@@ -686,8 +859,13 @@ with tab_adversarial:
 
         with st.spinner("🔬 Auditing misleading answer..."):
             try:
-                adv_result = run_audit(api_key, adv_ctx, adv_q, misleading,
-                                       model_name=model_choice, strict=True)
+                adv_result = run_audit(
+                    eval_api_key_adv, adv_ctx, adv_q, misleading,
+                    model_name=adv_model,
+                    provider=eval_provider_adv or adv_provider,
+                    strict=True,
+                    base_url=eval_url_adv,
+                )
             except Exception as e:
                 st.error(f"❌ Audit failed: {e}")
                 st.stop()

@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.35+-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io)
-[![Gemini](https://img.shields.io/badge/Google%20Gemini-2.5-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://aistudio.google.com)
+[![Multi-Provider](https://img.shields.io/badge/Multi%20Provider-5-4285F4?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/yourname/TruthLens)
 [![License](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
 
 > **"Don't trust. Verify. Quantify."**  
@@ -18,7 +18,9 @@
 
 ## ⚡ What is TruthLens?
 
-TruthLens is a **context-aware hallucination detection system** built on top of Google Gemini. It takes an AI-generated answer, deconstructs it into individual factual claims, and cross-references every single one against a provided source document — assigning trust scores, classifying failure modes, and producing actionable human-readable verdicts.
+TruthLens is a **context-aware hallucination detection system** supporting multiple AI providers. It takes an AI-generated answer, deconstructs it into individual factual claims, and cross-references every single one against a provided source document — assigning trust scores, classifying failure modes, and producing actionable human-readable verdicts.
+
+Test with **any AI model**: Google Gemini, OpenAI, Anthropic Claude, local Ollama models, or the included **Mock provider** (no API keys needed).
 
 No external knowledge. No assumptions. Just your context vs. the model's output.
 
@@ -39,8 +41,10 @@ No external knowledge. No assumptions. Just your context vs. the model's output.
 | ⚠️ **Risk Explanation** | Dynamic "Why This Is Risky" bullets generated from audit results |
 | 💡 **User Guidance** | Contextual suggested actions (verify, cite, re-prompt, fix) tailored to the specific failure type |
 | ✨ **Grounded Fix** | Rewrites the answer strictly from context, removing or correcting every ungrounded claim |
-| ⚖️ **Side-by-Side Model Comparison** | Audit the same question across two Gemini models simultaneously |
+| ⚖️ **Side-by-Side Model Comparison** | Audit the same question across two models from any provider simultaneously |
 | 🧨 **Adversarial Testing** | Generates convincing-but-incorrect answers to stress-test the auditor's detection limits |
+| 🤖 **Multi-Provider Support** | Use Gemini, OpenAI, Anthropic Claude, Ollama, or Mock provider for testing |
+| 🧪 **Mock Provider Testing** | Test all features without API keys using the included Mock provider |
 
 ---
 
@@ -114,17 +118,36 @@ venv\Scripts\activate        # Windows
 pip install -r requirements.txt
 ```
 
-### 2. Get a Gemini API key
+### 2. Choose Your Provider
 
-Head to [Google AI Studio](https://aistudio.google.com/) → **Create API Key**.
+#### Option A: Test with Mock Provider (Recommended for First Time)
+✅ **No API keys needed** — perfect for trying everything out
 
-You can either:
-- Paste it directly into the sidebar at runtime, **or**
-- Add it to a `.env` file:
-
-```env
-GEMINI_API_KEY=AIza...
+```bash
+streamlit run app.py
+# In sidebar: Provider → "mock"
 ```
+
+#### Option B: Use Gemini
+Head to [Google AI Studio](https://aistudio.google.com/) → **Create API Key**, then:
+```bash
+streamlit run app.py
+# In sidebar: Provider → "gemini", paste your API key
+```
+
+#### Option C: Use Local Ollama (Free)
+```bash
+# Install: https://ollama.ai/
+ollama pull mistral
+ollama run mistral
+
+# In another terminal:
+streamlit run app.py
+# In sidebar: Provider → "ollama"
+```
+
+#### Option D: Use OpenAI or Anthropic
+Same setup as Gemini — just select different provider and paste your API key
 
 ### 3. Launch
 
@@ -157,21 +180,47 @@ Risk Level:   80–100 → Low
 
 ---
 
+## 🧪 Testing
+
+### Test Without Any API Keys
+
+```bash
+python test_multi_provider.py
+```
+
+**Output:**
+```
+✅ Mock provider initialized
+✅ Available models: mock-fast, mock-standard, mock-detailed
+✅ Audit result: Trust Score 100, Risk Low
+✅ All critical tests passed!
+```
+
+See [TESTING_GUIDE.md](TESTING_GUIDE.md) for complete testing scenarios.
+
+---
+
 ## 📁 Project Structure
 
 ```
 TruthLens/
-├── app.py              # Streamlit UI — all tabs, rendering, interactivity
-├── auditor.py          # Core logic — Gemini calls, scoring, highlighting, analytics
-├── requirements.txt    # Python dependencies
-└── tests.py            # Basic smoke tests
+├── app.py                     # Streamlit UI — multi-provider support
+├── auditor.py                 # Core logic — provider-agnostic auditing
+├── model_provider.py          # Multi-provider abstraction layer
+├── test_multi_provider.py     # Test suite (no API keys needed)
+├── requirements.txt           # Python dependencies
+├── MULTI_PROVIDER_GUIDE.md    # Detailed provider setup guide
+├── TESTING_GUIDE.md           # Testing scenarios & troubleshooting
+└── tests.py                   # Basic smoke tests
 ```
 
-### Key modules in `auditor.py`
+### Key modules
+
+**`auditor.py`** — Core auditing logic (provider-agnostic)
 
 | Function | Role |
 |---|---|
-| `run_audit()` | Main audit pipeline — calls Gemini, parses JSON, recomputes score |
+| `run_audit()` | Main audit pipeline — calls any provider, parses JSON, recomputes score |
 | `classify_failure_type()` | Derives primary failure label from claim mix |
 | `detect_confidence_calibration()` | Compares linguistic tone vs. actual trust score |
 | `score_breakdown()` | Per-category deduction breakdown |
@@ -180,16 +229,32 @@ TruthLens/
 | `build_highlighted_answer()` | HTML-annotated answer with partial-match claim highlighting |
 | `check_consistency()` | Intra-answer logical contradiction detection |
 
+**`model_provider.py`** — Multi-provider abstraction layer
+
+| Class | Role |
+|---|---|
+| `ModelProvider` | Abstract base class for all providers |
+| `GeminiProvider` | Google Gemini API adapter |
+| `OpenAIProvider` | OpenAI API adapter |
+| `AnthropicProvider` | Anthropic Claude API adapter |
+| `OllamaProvider` | Local Ollama models adapter |
+| `MockProvider` | Test provider (no API calls) |
+| `get_provider()` | Factory function to instantiate providers |
+| `GenerateConfig` | Unified config across all providers |
+
 ---
 
-## 🎛️ Models Supported
+## 🎛️ Providers & Models Supported
 
-| Model | Best For |
-|---|---|
-| `gemini-2.5-flash` | Fast audits, default |
-| `gemini-2.5-pro` | Deep reasoning, complex contexts |
-| `gemini-2.0-flash` | Balanced speed/quality |
-| `gemini-2.0-flash-lite` | High-volume, lightweight checks |
+| Provider | Models | Setup |
+|---|---|---|
+| 🔷 **Google Gemini** | `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-1.5-pro` | [Get API Key](https://aistudio.google.com/) |
+| 🟠 **OpenAI** | `gpt-4o`, `gpt-4-turbo`, `gpt-4`, `gpt-3.5-turbo` | [Get API Key](https://platform.openai.com/api-keys) |
+| 🪶 **Anthropic Claude** | `claude-3-5-sonnet`, `claude-3-5-haiku`, `claude-3-opus` | [Get API Key](https://console.anthropic.com/) |
+| 🦙 **Ollama (Local)** | `mistral`, `llama2`, `neural-chat`, `starling-lm` | [Install Ollama](https://ollama.ai/) |
+| 🧪 **Mock (Testing)** | `mock-fast`, `mock-standard`, `mock-detailed` | No setup needed |
+
+**Use any provider for answer generation, any for evaluation — or stick with one for the entire workflow.**
 
 ---
 
