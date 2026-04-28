@@ -28,10 +28,19 @@ def _get_provider_instance(provider: str, api_key: str, base_url: str = None):
 
 def _call(provider_name: str, api_key: str, model: str, prompt: str,
           cfg: GenerateConfig = None, base_url: str = None) -> str:
-    """Call an LLM using the specified provider."""
-    provider = _get_provider_instance(provider_name, api_key, base_url)
-    config = cfg or LOW_TEMP
-    return provider.generate_content(model, prompt, config)
+    try:
+        provider = _get_provider_instance(provider_name, api_key, base_url)
+        config = cfg or LOW_TEMP
+
+        response = provider.generate_content(model, prompt, config)
+
+        if not response:
+            return "ERROR: Empty response from model"
+
+        return response
+
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 
 
 def _parse_json(raw: str) -> dict:

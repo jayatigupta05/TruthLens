@@ -124,7 +124,7 @@ pip install -r requirements.txt
 ✅ **No API keys needed** — perfect for trying everything out
 
 ```bash
-streamlit run app.py
+python test_multi_provider.py
 # In sidebar: Provider → "mock"
 ```
 

@@ -165,6 +165,9 @@ with st.sidebar:
         index=SUPPORTED_PROVIDERS.index(DEFAULT_PROVIDER),
         help="Choose which AI model provider to use",
     )
+
+    # provider = "mock"
+    # provider_choice = "mock"
     
     # Store provider in session state for consistent use
     st.session_state.provider = provider_choice
@@ -246,7 +249,7 @@ with st.sidebar:
                 f"{eval_provider.capitalize()} API Key for Evaluation",
                 type="password",
                 key="eval_api_key_input",
-            )
+            )  # Fallback to main API key if eval key not provided
             eval_url = None
         st.session_state.eval_provider = eval_provider
         st.session_state.eval_api_key = eval_api_key
@@ -345,7 +348,7 @@ with tab_main:
         provider_choice = st.session_state.get("provider", DEFAULT_PROVIDER)
         ollama_url = st.session_state.get("ollama_url")
 
-        if not api_key:
+        if provider_choice != "mock" and not api_key:
             st.error(f"🔑 Please enter your {provider_choice.capitalize()} API key in the sidebar.")
             st.stop()
         if not ctx or not q:
@@ -357,7 +360,7 @@ with tab_main:
             answer = answer_override.strip()
             st.info("Using manually provided answer.")
         else:
-            with st.spinner("✍️ Generating grounded answer..."):
+            with st.spinner(f"✍️ Generating using {provider_choice} ({model_choice})..."):
                 try:
                     answer = generate_answer(
                         api_key, ctx, q,
@@ -365,13 +368,19 @@ with tab_main:
                         provider=provider_choice,
                         base_url=ollama_url,
                     )
+                    if isinstance(answer, str) and answer.startswith("ERROR"):
+                        st.error(answer)
+                        st.stop()
+
                 except Exception as e:
                     st.error(f"❌ Answer generation failed: {e}")
                     st.stop()
 
         # Determine which provider to use for evaluation
         eval_provider = st.session_state.get("eval_provider", provider_choice)
-        eval_api_key = st.session_state.get("eval_api_key", api_key)
+        eval_api_key = st.session_state.get("eval_api_key_input")
+        if not eval_api_key:
+            eval_api_key = api_key
         eval_url = st.session_state.get("eval_url", ollama_url)
 
         # Step 2: Normal audit
@@ -384,6 +393,9 @@ with tab_main:
                     strict=False,
                     base_url=eval_url,
                 )
+                if not isinstance(result, dict):
+                    st.error("Audit failed or returned invalid response")
+                    st.stop()
             except Exception as e:
                 st.error(f"❌ Audit failed: {e}")
                 st.stop()
