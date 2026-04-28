@@ -368,9 +368,16 @@ with tab_main:
                         provider=provider_choice,
                         base_url=ollama_url,
                     )
-                    if isinstance(answer, str) and answer.startswith("ERROR"):
-                        st.error(answer)
-                        st.stop()
+                    if isinstance(answer, str) and "ERROR" in answer:
+                        st.warning("⚠️ Gemini is busy, switching to mock mode for demo")
+
+                        provider_choice = "mock"
+                        answer = generate_answer(
+                            api_key, ctx, q,
+                            model="mock-standard",
+                            provider="mock",
+                            base_url=ollama_url,
+                        )
 
                 except Exception as e:
                     st.error(f"❌ Answer generation failed: {e}")
