@@ -115,3 +115,57 @@ Trust Score = 100
              − 25 × [Contradictions]
              − 10 × [Unsupported Claims]
              −  5 × [Overconfidence Signals]
+```
+
+## 📐 Risk Levels
+
+- 🟢 **80–100 → Low**  
+- 🟡 **50–79 → Medium**  
+- 🔴 **0–49 → High**  
+
+---
+
+## 🧪 Zero-Setup Testing (Local)
+
+```bash
+python test_multi_provider.py
+```
+No API keys required.
+
+---
+
+## 🧠 The Real Value
+
+TruthLens isn’t just a tool — it’s a mindset shift:
+
+Instead of:
+
+> “The model said it, so it’s probably right”
+
+You get:
+
+> “Here’s exactly what’s wrong, why it’s risky, and how to fix it.”
+
+---
+
+## 📁 Project Structure
+
+*(unchanged — already solid and clear)*
+
+---
+
+## 🤝 Contributing
+
+If you care about **trust in AI**, you’ll care about this project.
+
+- PRs welcome  
+- Ideas welcome  
+- Skepticism encouraged  
+
+---
+
+<div align="center">
+
+### 🛡️ Built for people who refuse to blindly trust AI
+
+</div>
